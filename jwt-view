@@ -1,0 +1,46 @@
+when HTTP_REQUEST priority 100 {
+    if { [HTTP::has_responded] or [HTTP::path] ne "/view" } {
+        return
+    }
+    set content "
+<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+<title>JWT Viewer</title>
+<style>
+  body \{ font-family:sans-serif;background-color:#f8f9fa; \}
+  textarea, pre \{ width:30rem;background-color:#fff;padding:0.5rem;border:1px solid #8f8f9d; \}
+</style>
+</head>
+<body>
+<h1>JWT Viewer</h1>
+<textarea cols=\"80\" rows=\"20\" placeholder=\"Paste token here.\" onchange=\"view()\"></textarea>
+<h2>Header</h2>
+<pre id=\"header\"></pre>
+<h2>Body</h2>
+<pre id=\"body\"></pre>
+<script>
+function view() \{
+    const jwt = document.querySelector('textarea').value;
+    const elements = jwt.split('.');
+    const header = JSON.parse(b64_url_decode(elements\[0\]));
+    const body = JSON.parse(b64_url_decode(elements\[1\]));
+    document.querySelector('#header').innerHTML = syntaxHighlight(JSON.stringify(header, undefined, 4));
+    document.querySelector('#body').innerHTML = syntaxHighlight(JSON.stringify(body, undefined, 4));
+\}
+function b64_url_decode(input) \{
+    input = input.replace(/-/g, '+').replace(/_/g, '/');
+    var pad = input.length % 4;
+    if (pad) \{
+        input += new Array(5-pad).join('=');
+    \}
+    return atob(input);
+\}
+function syntaxHighlight(json) \{
+    return json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+\}
+</script>
+</body>
+</html>"
+    HTTP::respond 200 content $content "content-type" "text/html"
+}
