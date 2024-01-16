@@ -1,0 +1,37 @@
+when RULE_INIT priority 100 {
+    # SHA256 signing header
+    set static::jwt_sign_digest_header_sha256 \x30\x31\x30\x0d\x06\x09\x60\x86\x48\x01\x65\x03\x04\x02\x01\x05\x00\x04\x20
+    # JWT Lifetime
+    set static::jwt_sign_lifetime 3600
+    # Private key for signature
+    set static::jwt_signature_kid "jwk-test"
+    set static::jwt_signature_privkey {-----BEGIN PRIVATE KEY-----
+XXX
+-----END PRIVATE KEY-----
+}
+}
+
+when HTTP_REQUEST priority 100 {
+    if { [HTTP::has_responded] or [HTTP::path] ne "/jwt" } {
+        return
+    }
+    set now [clock seconds]
+    set ts_exp [expr { $now + $static::jwt_sign_lifetime }]
+    set jwt_header "\{\"alg\":\"RS256\",\"kid\":\"$static::jwt_signature_kid\",\"typ\":\"JWT\"\}"
+    set jwt_body "\{\"aud\":\"test-audience\",\"iat\":$now,\"nbf\":$now,\"exp\":$ts_exp\}"
+
+    set jwt_header_b64_url [call b64url_encode $jwt_header]
+    set jwt_body_b64_url [call b64url_encode $jwt_body]
+
+    set hash [sha256 "${jwt_header_b64_url}.${jwt_body_b64_url}"]
+    set sig_bin [binary format a* ${static::jwt_sign_digest_header_sha256}${hash}]
+
+    set sig_enc [CRYPTO::encrypt -alg rsa-priv -key $static::jwt_signature_privkey -- $sig_bin]
+    set jwt_sig_b64_url [call b64url_encode $sig_enc]
+
+    HTTP::respond 200 content "$jwt_header_b64_url.$jwt_body_b64_url.$jwt_sig_b64_url" "content-type" "text/plain"
+}
+
+proc b64url_encode { str } {
+    return [string map [list "+" "-" "/" "_" "=" ""] [b64encode $str]]
+}
