@@ -1,0 +1,137 @@
+when RULE_INIT priority 100 {
+    # SHA256 signing header
+    set static::jwt_validate_digest_header_sha256 "3031300d060960864801650304020105000420"
+    # Public key for signature validation
+    set static::jwt_validate_pubkey_kid1 {-----BEGIN PUBLIC KEY-----
+XXX
+-----END PUBLIC KEY-----
+}
+    set static::jwt_validate_pubkey_kid2 {-----BEGIN PUBLIC KEY-----
+XXX
+-----END PUBLIC KEY-----
+}
+}
+
+when HTTP_REQUEST priority 100 {
+    if { not ([HTTP::header value Authorization] starts_with "Bearer ") } {
+        HTTP::respond 401 content "Authorization required" "Content-Type" "text/plain" "WWW-Authenticate" "Bearer"
+        log local0. "No bearer token found"
+        return
+    }
+
+    # Get JWT from authorization header
+    set jwt_header_b64_url [string range [getfield [HTTP::header value Authorization] "." 1] 7 end]
+    set jwt_body_b64_url [getfield [HTTP::header value Authorization] "." 2]
+    set jwt_sig_b64_url [getfield [HTTP::header value Authorization] "." 3]
+
+    if { $jwt_header_b64_url eq "" or  $jwt_body_b64_url eq "" or $jwt_sig_b64_url eq "" } {
+        HTTP::respond 401 content "Authorization required" "Content-Type" "text/plain" "WWW-Authenticate" "Bearer"
+        log local0. "No bearer token found"
+        return
+    }
+
+    #log local0. "Header: $jwt_header_b64_url"
+    #log local0. "Body: $jwt_body_b64_url"
+    #log local0. "Sig: $jwt_sig_b64_url"
+    
+    # Decode JWT components
+    set jwt_header [call b64url_decode $jwt_header_b64_url]
+    log local0. "JWT Header: $jwt_header"
+    set jwt_body [call b64url_decode $jwt_body_b64_url]
+    log local0. "JWT Body: $jwt_body"
+    set jwt_sig [call b64url_decode $jwt_sig_b64_url]
+
+    if { $jwt_header eq "" or $jwt_body eq "" or $jwt_sig eq ""} {
+        HTTP::respond 401 content "Authorization required" "Content-Type" "text/plain" "WWW-Authenticate" "Bearer"
+        log local0. "Unable to decode jwt components"
+        return
+    }
+
+    # Get signing algorithm
+    set jwt_algo [call get_json_str "alg" $jwt_header]
+    log local0. "JWT signing: $jwt_algo"
+    if { $jwt_algo ne "RS256" } {
+        HTTP::respond 401 content "Authorization required" "Content-Type" "text/plain" "WWW-Authenticate" "Bearer"
+        log local0. "Unsupported signature algorithm"
+        return
+    }
+
+    # Get expiration
+    set jwt_exp [call get_json_num "exp" $jwt_body]
+    log local0. "JWT expiration: $jwt_exp"
+    set now [clock seconds]
+    if { $jwt_exp < $now } {
+        HTTP::respond 401 content "Authorization required" "Content-Type" "text/plain" "WWW-Authenticate" "Bearer"
+        log local0. "JWT expired"
+        return
+    }
+
+    # Get key id
+    set jwt_kid [call get_json_str "kid" $jwt_header]
+    switch -- $jwt_kid {
+        "kid1" { set jwt_pubkey $static::jwt_validate_pubkey_kid1 }
+        "kid2" { set jwt_pubkey $static::jwt_validate_pubkey_kid2 }
+        default {
+            HTTP::respond 401 content "Authorization required" "Content-Type" "text/plain" "WWW-Authenticate" "Bearer"
+            log local0. "Unknown kid: $jwt_kid"
+            return
+        }
+    }
+
+    # Decrypt signature with public key
+    if { [catch {
+        set jwt_sig_decrypted [CRYPTO::decrypt -alg rsa-pub -key $jwt_pubkey $jwt_sig]
+        binary scan $jwt_sig_decrypted H* jwt_sig_decrypted_hex
+        log local0. "Signature:  $jwt_sig_decrypted_hex"
+    }] } {
+        HTTP::respond 401 content "Authorization required" "Content-Type" "text/plain" "WWW-Authenticate" "Bearer"
+        log local0. "Unable to decrypt signature: [subst "\$::errorInfo"]"
+        return
+    }
+
+    # Create hash from JWT header and payload
+    set hash [sha256 "$jwt_header_b64_url.$jwt_body_b64_url"]
+    binary scan $hash H* hash_hex
+    log local0. "Calculated: ${static::jwt_validate_digest_header_sha256}${hash_hex}"
+
+    # Compare calculated and decrypted hash
+    if { "${static::jwt_validate_digest_header_sha256}${hash_hex}" ne $jwt_sig_decrypted_hex } {
+        HTTP::respond 401 content "Authorization required" "Content-Type" "text/plain" "WWW-Authenticate" "Bearer"
+        return
+    }
+
+    log local0. "Signature verified"
+}
+
+proc b64url_decode { str } {
+    set mod [expr { [string length $str] % 4 } ]
+    if { $mod == 2 } {
+        append str "=="
+    } elseif {$mod == 3} {
+        append str "="
+    }
+    if { [catch { b64decode [ string map {- + _ /} $str] } str_b64decoded ] == 0 and $str_b64decoded ne "" } {
+        return $str_b64decoded
+    } else {
+        log local0. "Base64URL decoding error: [subst "\$::errorInfo"]"
+        return ""
+    }
+}
+
+proc get_json_str { key str } {
+    set value [findstr "\"$str\"" $key [ expr { [string length $key] + 2 } ] ]
+    set value [string trimleft $value {" }]
+    set json_value ""
+    foreach char [split $value ""] {
+        if { $char == {\\} } { continue }
+        if { $char == {"} } { break }
+        append json_value $char
+    }
+    return $json_value
+}
+
+proc get_json_num { key str } {
+    set value [findstr "\"$str\"" $key [ expr { [string length $key] + 2 } ] ]
+    set value [string trimleft $value { }]
+    return [scan $value {%[0-9]}]
+}
