@@ -119,8 +119,8 @@ proc b64url_decode { str } {
 }
 
 proc get_json_str { key str } {
-    set value [findstr "\"$str\"" $key [ expr { [string length $key] + 2 } ] ]
-    set value [string trimleft $value {" }]
+    set value [findstr $str "\"$key\"" [ expr { [string length $key] + 2 } ] ]
+    set value [string trimleft $value {:" }]
     set json_value ""
     foreach char [split $value ""] {
         if { $char == {\\} } { continue }
@@ -131,7 +131,7 @@ proc get_json_str { key str } {
 }
 
 proc get_json_num { key str } {
-    set value [findstr "\"$str\"" $key [ expr { [string length $key] + 2 } ] ]
-    set value [string trimleft $value { }]
+    set value [findstr $str "\"$key\"" [ expr { [string length $key] + 2 } ] ]
+    set value [string trimleft $value {: }]
     return [scan $value {%[0-9]}]
 }
