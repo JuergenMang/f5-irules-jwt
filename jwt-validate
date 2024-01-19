@@ -1,3 +1,5 @@
+# Code is community submitted, community supported, and recognized as ‘Use At Your Own Risk’.
+
 when RULE_INIT priority 100 {
     # SHA256 signing header
     set static::jwt_validate_digest_header_sha256 "3031300d060960864801650304020105000420"
@@ -118,20 +120,40 @@ proc b64url_decode { str } {
     }
 }
 
-proc get_json_str { key str } {
-    set value [findstr $str "\"$key\"" [ expr { [string length $key] + 2 } ] ]
-    set value [string trimleft $value {:" }]
-    set json_value ""
-    foreach char [split $value ""] {
-        if { $char == {\\} } { continue }
-        if { $char == {"} } { break }
-        append json_value $char
-    }
-    return $json_value
-}
-
 proc get_json_num { key str } {
     set value [findstr $str "\"$key\"" [ expr { [string length $key] + 2 } ] ]
     set value [string trimleft $value {: }]
     return [scan $value {%[0-9]}]
+}
+
+proc get_json_str { key str } {
+    set value [findstr $str "\"$key\"" [ expr { [string length $key] + 2 } ] ]
+    set value [string trimleft $value {:" }]
+    set json_value ""
+    set escaped 0
+    foreach char [split $value ""] {
+        if { $escaped == 0 } {
+            if { $char eq "\\" } {
+                # next char is escaped
+                set escaped 1
+            } elseif { $char eq {"} } {
+                # exit loop on first unescaped quotation mark
+                break
+            } else {
+                append json_value $char
+            }
+        } else {
+            switch -- $char {
+                "\"" -
+                "\\" {
+                    append json_value $char
+                }
+                default {
+                    # simply ignore other escaped values
+                }
+            }
+            set escaped 0
+        }
+    }
+    return $json_value
 }
