@@ -1,3 +1,5 @@
+# Code is community submitted, community supported, and recognized as ‘Use At Your Own Risk’.
+
 when RULE_INIT priority 100 {
     # SHA256 signing header
     set static::jwt_sign_digest_header_sha256 \x30\x31\x30\x0d\x06\x09\x60\x86\x48\x01\x65\x03\x04\x02\x01\x05\x00\x04\x20
