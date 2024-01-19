@@ -1,3 +1,5 @@
+# Code is community submitted, community supported, and recognized as ‘Use At Your Own Risk’.
+
 when HTTP_REQUEST priority 100 {
     if { [HTTP::has_responded] or [HTTP::path] ne "/view" } {
         return
